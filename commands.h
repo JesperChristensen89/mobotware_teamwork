@@ -13,6 +13,7 @@ class Commands
 {
 public:
     static void angle(char* angleStr, float angle);
+    static void vel(char* velStr, float vel);
     static void distance(char* distanceStr, float distance); 
 
 };

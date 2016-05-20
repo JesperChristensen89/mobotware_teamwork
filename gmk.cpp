@@ -44,6 +44,7 @@ int GMK::getIDs(int idx)
  */
 bool GMK::findID(int ID)
 {
+  /*
   vector<int>::iterator it;
   it = find (IDs.begin(), IDs.end(), ID);
   
@@ -51,7 +52,25 @@ bool GMK::findID(int ID)
     return true;
   else
     return false;
+  */
   
+  char IDstr[10];
+  for (uint i = 0; i < IDs.size(); i++)
+  {
+    snprintf(IDstr, 10, "%d", IDs[i]);
+    
+    int temp = atoi(IDstr);
+    
+    ID2find = temp;
+    
+    if (temp/10 == ID)
+    {
+      printf("\nCorrect ID is found\n");
+      return true;
+    }
+    
+  }
+  return false;
 
 }
 

@@ -1,33 +1,77 @@
 #include "control.h"
+
 #include <iostream>
 
 using namespace std;
 
-double integral = 0;
+#define maxVEL 0.27 // maximum velocity
 
-void Control::reset()
+double integralAngle = 0;
+double integralVel = 0;
+
+void Control::resetAngle()
 {
-    integral = 0;
+    integralAngle = 0;
 }
 
-int Control::regulator(int edge, int midImg)
+void Control::resetVel()
+{
+  integralVel = 0;
+}
+
+
+double Control::velRegulator(double targetDistanceToObject, int actualHeight, bool foundRect, FILE * visionLog)
+{
+  if (clrVelReg)
+  {
+    clrVelReg = false;
+    printf("Velocity regulator has been reset\n");
+    resetVel();
+  }
+  
+  double actualDistance = 0;
+  if (foundRect)
+    actualDistance = 0.01/actualHeight*880; // 880 = focallength
+  else
+    actualDistance = 0.02/actualHeight*880; // 880 = focallength 
+    
+
+  
+  double err =  actualDistance - targetDistanceToObject;
+  
+  double Kp = 0.8;
+  
+  double vel = Kp * err + masterVel;
+
+  if (vel > maxVEL)
+    vel = maxVEL;
+  else if ( vel < -maxVEL)
+    vel = -maxVEL;
+  
+  if ( actualDistance-distanceOveride > 0.30)
+  {
+    vel = logVel;
+    fprintf(visionLog, "1\n");
+  }
+  else
+  {
+    distanceOveride = actualDistance;
+    fprintf(visionLog, "0\n");
+  } 
+  
+  logVel = vel;
+
+  printf("Distance to object: %f\n", actualDistance);
+  
+  return vel;
+}
+
+
+
+int Control::angleRegulator(int midTarget, int midImg)
 {
        
-        
-
-    /*
-     * this should have been a PI regulator
-     * taking current angle as feedback and
-     * reference angle as input
-     * 
-     * could not get it to work
-     * 
-    double err = refAngle - angle;
-    double Kp = 0.1;
-    double Ki = 2;
-    integral = integral + (err * 0.03333);
-    angle = err * Kp + Ki * integral;
-    */
+       
 
     /*
      PI regulator to calculate a reference angle to 
@@ -40,18 +84,19 @@ int Control::regulator(int edge, int midImg)
      */
 
 
-    double err = midImg - edge;
+    double err = midImg - midTarget;
 
     double Kp = 0.016/3;
 
     double Ki = 0.55;
 
 
-    integral = integral + (err * 0.03333);
+    integralAngle = integralAngle + (err * 0.03333);
 
 
-    int angle = err * Kp + Ki * integral;
+    int angle = err * Kp + Ki * integralAngle + angleToGmk;
         
+    logAngle = angle*M_PI/180;
     
     /*
      * 

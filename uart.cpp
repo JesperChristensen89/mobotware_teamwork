@@ -11,6 +11,7 @@ int uart0_filestream = -1;
 
 
 bool missionStart = false;
+bool regbotReady = false;
 int tooClose = 0;
 
 
@@ -78,12 +79,20 @@ void UART::receive()
                 rx_buffer[rx_length] = '\0';
 
                 char* str = rx_buffer;
+		printf(str);
                 
                 if (strncmp(str,"start\n",6)==0)
                 {
                     missionStart = true;
                     
                 }
+                
+                else if (strncmp(str,"ready\n",5)==0)
+		{
+		  regbotReady = true;
+		}
+		else
+		  printf(str);
 
             }
         }

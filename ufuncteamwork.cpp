@@ -34,13 +34,15 @@
 #include "gmk.h"
 #include "uart.h"
 #include "commands.h"
-
+#include "tcp.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include "../aupoly/urespoly.h"
 #include <urob4/uresposehist.h>
 //#include <urob4/ucmdexe.h>
 //#include <../libs/eigen3/Eigen/src/Eigen2Support/Geometry/Translation.h>
 #include <highgui.h>
-//#include <time.h>
+#include <time.h>
 #include "opencv2/imgproc/imgproc.hpp"
 #include <pthread.h>
 #include <unistd.h>
@@ -49,9 +51,38 @@
 TeamWork teamwork;
 GMK gmk;
 UART uart;
+TCP tcpClient;
+FILE * logFile;
+bool startLogging = false;
 
 double distanceToGmk = 0;
 double angleToGmk = 0;
+double vel = 0;
+double turnRadius = 0.0;
+bool wifiIsConnected = false;
+bool clrVelReg = false;
+
+bool interupt = false;
+double angleOveride = 0;
+double distanceOveride = 0.40;
+int overideState = 0;
+
+double logVel = 0;
+double logAngle = 0;
+double masterVel = 0;
+
+int loopcounter = 0;
+
+// defines the ID the robot is looking for
+int ID2find = 1;
+// true if robot sees left side of robot [default = true]
+bool leftSide = true;
+// flag to start teensy log
+bool startTeensyLog = false;
+// flag to stop visionLog
+bool stopVisionLog = false;
+// indicates if the leader got the msg
+bool leaderProceeding = false;
 
 void* uartReceiver(void* arg)
 {
@@ -59,6 +90,20 @@ void* uartReceiver(void* arg)
   {
     uart.receive();
     usleep(500);
+  }
+  
+  pthread_exit(NULL);
+}
+
+void* tcpReceiver(void* arg)
+{
+  while(1)
+  {
+    if (wifiIsConnected)
+    {
+      tcpClient.receive();
+      usleep(500);
+    }
   }
   
   pthread_exit(NULL);
@@ -95,6 +140,7 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
   ask4help = msg->tag.getAttValue("help", val, MVL);
   stopRegbot = msg->tag.getAttValue("stop",val,MVL);
   bool setup = false;
+  bool regbotreadytogo = false;
   if (not ask4help)
   { // get all other parameters
     msg->tag.getAttValueInt("device", &camDevice);
@@ -102,14 +148,15 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
     msg->tag.getAttValueBool("debug", &debug, true);
     msg->tag.getAttValueBool("smrcl", &smrcl, true);
     msg->tag.getAttValueBool("setup", &setup, true);
+    msg->tag.getAttValueBool("ready", &regbotreadytogo, true);
+    msg->tag.getAttValueInt("M",&missionState);
   }
   if (setup)
   {
     getCorePointer()->postCommand(-36,"varpush struct=gmk call=\"teamwork.getGMK(0)\"\n");
-    getCorePointer()->postCommand(-36,"poolpush img=13 cmd=\"teamwork img=13\"\n");
+    getCorePointer()->postCommand(-36,"poolpush img=13 i=1 cmd=\"teamwork img=13\"\n");
     
     uart.init();
-    
     
     pthread_t uartReceiveThread;
     int ret = pthread_create(&uartReceiveThread, NULL, &uartReceiver, NULL);
@@ -119,11 +166,28 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
       exit(EXIT_FAILURE);
     }
     
+    pthread_t tcpReceiveThread;
+    ret = pthread_create(&tcpReceiveThread, NULL, &tcpReceiver, NULL);
+    if (ret != 0)
+    {
+      printf("Error: pthread_create() failed\n");
+      exit(EXIT_FAILURE);
+    }
+    
     uart.send((char*)"S=1\n");
+    
+    logFile = fopen("../raspilog.txt", "w");
+    
+    
     
     printf("\nSetup completed!\n");
     
     
+    result = true;
+  }
+  if(regbotreadytogo)
+  {
+    tcpClient.sendData("readyToGo\n");
     result = true;
   }
   // ask4help = false, if no 'help' option were available.
@@ -144,7 +208,13 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
   
   else if (stopRegbot)
   {
-    //uart.send((char *)"998\n");
+    uart.send((char*)"M=3\n");
+    uart.send((char *)"A=998\n");
+    startLogging = false;
+    fclose(logFile);
+    printf("Sending stop command\n");
+    
+    stopVisionLog = true;
   }
   else
   { 
@@ -192,34 +262,143 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
     if (result)
     { 
       
+      
+      
+      // make sure client is connected to server
+      if (not wifiIsConnected)
+      {
+	wifiIsConnected = tcpClient.conn("10.0.1.159",1336);
+	if (not wifiIsConnected)
+	  return false;
+      }
+         
+      loopcounter += 1;
+         
+         
+      if (interupt)
+      {
+	switch (overideState)
+	{
+	  case 0:
+	    
+	    printf("Sending overide angle\n");
+	   
+	    char overrideAngleStr[20];
+	    snprintf(overrideAngleStr,20, "OA=%f\n", angleOveride);
+	    uart.send(overrideAngleStr);
+	    
+	    angleToGmk += (angleOveride*180/M_PI);
+	    
+	    overideState = 1;
+	    break;
+	    
+	  case 1:
+	    if(regbotReady)
+	    {
+	      regbotReady = false;
+	      
+	      printf("Sending overide distance\n");
+	    
+	      char overrideDistStr[20];
+	      snprintf(overrideDistStr,20, "OD=%f\n", distanceOveride+0.15);
+	      uart.send(overrideDistStr);
+	      
+	      overideState = 2;
+	    }
+	    
+	    break;
+	    
+	    
+	  case 2:
+	    if(regbotReady)
+	    {
+	      regbotReady = false;
+	      printf("Sending overide mission\n");
+	      
+	      if (angleOveride == 3.14)
+	      {
+		uart.send((char*)"M=10\n");
+		//startLogging = true;
+		angleToGmk = 0.0;
+	      }
+	      else
+		uart.send((char*)"M=8\n");
+	      
+	      overideState = 3;
+	    }
+	    break;
+	    
+	  case 3:
+	    if (regbotReady)
+	    {
+	      distanceOveride = 0.4;
+	      tcpClient.sendData("readyToGo\n");
+	      interupt = false;
+	    }
+	    break;
+	    
+	  default:
+	    break;
+	}
+	
+	return true;
+      }
+	
+	if (startTeensyLog)
+	{
+	  switch (overideState)
+	  {
+	    case 0:
+	      uart.send((char*)"M=97\n"); // start teensy log
+	      overideState = 1;
+	      break;
+	    case 1:
+	      if(regbotReady)
+	      {
+		regbotReady = false;
+		startTeensyLog = false;
+		
+		overideState = 0;
+	      }
+	      break;
+	  }
+	  return true;
+	}
+		
+            
+     
       // there is an image, make the required analysis
       
-      cv::Mat imgCV = cv::cvarrToMat(img->cvArr());
-  
-      if (missionStart)
-      {
-	uart.send((char*)"Y=1\n");
-	teamwork.doWork(imgCV, uart);
-      }
-      
-      /*
-    
+      cv::Mat imgCV = cv::cvarrToMat(img->cvArr()); 
+
       switch (missionState)
       {
-	case 0: // get guidemarks
-	  if (not gmk.isRunning())
+	case 0:
+	  if (wifiIsConnected)
 	  {
+	    tcpClient.sendData("start\n");
+	    printf("Starting guidemark search\n");
+	    missionState = 1;
+	  }
+	  break;
+	
+	case 1: // get guidemarks
+	  if (not gmk.isRunning() and tcpClient.regbotStarted)
+	  {
+	    //tcpClient.sendData("readyCmd\n");
+	    uart.send((char*)"Y=1\n");
 	    gmkImg = imgPool->getImage(55,true);
 	    gmkImg->copy(img);
 	    gmkImg->setName("GMK image");
 	    gmkImg->updated();
 	    gmk.setReadyFlag(false);
 	    findGMK();
-	    missionState = 1;
+	    gmkTries += 1;
+	    missionState = 2;
 	  }
 	  break;
 	  
-	case 1: // verify CRC and get distance
+	case 2: // verify CRC and get distance
 	  if (gmk.getReadyFlag())
 	  {
 	    bool IDavailable = gmk.findID(ID2find);
@@ -231,9 +410,21 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
 	      if (crcOK)
 	      {
 		
+		// check for left or right side
+		char IDstr[10];
+		snprintf(IDstr, 10, "%d", ID2find);
+	
+		if ( IDstr[strlen(IDstr)-1] == '0')
+		{
+		  printf("Venstre side!\n");
+		  leftSide = true;
+		}
+		else           
+		{
+		  leftSide = false;
+		  printf("Højre side!\n");
+		}
 		
-		double gmkPose[6];
-		      
 		for (int i=0; i < 6; i++)
 		{
 		  char gmkPoseCall[50];
@@ -242,56 +433,306 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
 		  const char* gmkPoseCallConst = gmkPoseCall;
 		  
 		  getGlobalValue(gmkPoseCallConst,&gmkPose[i]);
-		  
-
-		    
+		
 		}
 	
-		//printf("Distance to GMK is: x=%f y=%f z=%f\nRotation is: Omega=%f Phi=%f Kappa=%f\n",gmkPose[0],gmkPose[1],gmkPose[2],gmkPose[3]*180/3.14,gmkPose[4]*180/3.14,180-gmkPose[5]*180/3.14);
+		printf("Distance to GMK is: x=%f y=%f z=%f\nRotation is: Omega=%f Phi=%f Kappa=%f\n",gmkPose[0],gmkPose[1],gmkPose[2],gmkPose[3]*180/3.14,gmkPose[4]*180/3.14,gmkPose[5]*180/3.14);
 		
-		distanceToGmk = sqrt(pow(gmkPose[0],2) + pow(gmkPose[1],2)) - 0.1; // goto 10 cm before guidemark
-		angleToGmk = M_PI/2 - acos(gmkPose[1]*0.8/(distanceToGmk+0.1));
+		missionState = 3;
+			
 		
-		missionState = 2;
 	      }
 		
 	      else
-		missionState = 0;
+	      {
+		if (gmkTries == 2)
+		  missionState = 21;
+		else
+		  missionState = 1;
+	      }
 	    }
 	    else
-	      missionState = 0;
+	    {
+	      if (gmkTries == 2)
+		missionState = 21;
+	      else
+		missionState = 1;
+	    }
 	  }
 	  break;
 	  
-	case 2: // ID 20 is identified and verified
-	  char distanceStr[50];
-	  snprintf(distanceStr,50,"D=%f\n",distanceToGmk);
-	  uart.send(distanceStr);
+	case 21: // case 2.1 turns the robot just a bit to make a new gmk search
+	  
+	  printf("Turning a bit\n");
+	  
+	  angleToGmk += M_PI/10;
+	  
+	  if (angleToGmk >= 2*M_PI)
+	    angleToGmk -= 2*M_PI;
+	  else if (angleToGmk <= -2*M_PI)
+	      angleToGmk += 2*M_PI;
+	  
+	  char angleAdjStr[50];
+	  snprintf(angleAdjStr,50,"A=%.3f\n",angleToGmk);
+	  uart.send(angleAdjStr);
+	  
+	  gmkTries = 0;
+	  
+	  missionState = 22;
+	  
+	  break;
+	  
+	case 22: // case 2.2 waits for direction on regbot to get adjusted
+	  if ( regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    missionState = 1;
+	  }
+	  break;
+	 
+	case 3: // align and drive in y
+	 
+	  printf("Calculating route\n");
+	  
+	  if (leftSide)
+	    distanceToGmk = 0.40 - (cos(gmkPose[5]-M_PI/2)*gmkPose[0] + gmkPose[1]); // y direction drive
+	  else
+	    distanceToGmk = 0.45 + (cos(gmkPose[5]-M_PI/2)*gmkPose[0] - gmkPose[1]);
+
+	  angleToGmk = angleToGmk + gmkPose[5] + M_PI/2;// - M_PI/3; // align with target
+	  
+	  if (not leftSide)
+	    angleToGmk -= M_PI;
+	  
+	  turnRadius = (sin(gmkPose[5]-M_PI/2) * gmkPose[0])/2;
+	  
+	  if (angleToGmk >= 2*M_PI)
+	    angleToGmk -= 2*M_PI;
+	  else if (angleToGmk <= -2*M_PI)
+	      angleToGmk += 2*M_PI;
+	  
+	  /*
+	  char angleStr[50];
+	  snprintf(angleStr,50,"VA=%.3f%.3f\n",vel,angleToGmk);
+	  uart.send(angleStr);
+	  */
 	  
 	  char angleStr[50];
-	  snprintf(angleStr,50,"A=%f\n",angleToGmk);
+	  snprintf(angleStr,50,"A=%.3f\n",angleToGmk);
 	  uart.send(angleStr);
 	  
-	  uart.send((char*)"Y=1\n");
-	  
-	  printf("%s%s",distanceStr,angleStr);
 	  
 	  
-	  
-	  
-	  missionState = 3;
-	  break;
-	  
-	case 3:
-	  break;
-	  
+	  missionState = 4;
 	  
 	 
+	  break;
+	  
+	case 4:
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	  
+	    printf("Sending distance\n");
+	    char distanceStrY[50];
+	    snprintf(distanceStrY,50,"D=%f\n",distanceToGmk);
+	    uart.send(distanceStrY);
+	    
+	    
+	    missionState = 5;
+	  }
+	  break;
+	  
+	case 5:
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    printf("Sending mission 4\n");
+	   
+	   
+	    uart.send((char*)"M=4\n");
+	    
+	    
+	    missionState = 6;
+	  }
+	  break;
+	  
+	case 6: 
+	  if (regbotReady) 
+	  {
+	    regbotReady = false;
+	    
+	    printf("Starting driving\n");
+	    
+	    missionState = 7;
+	  }
+	  break;
+	  
+	case 7: // drive in line to target
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    if (leftSide)
+	    {
+	      printf("Sending turnradius\n");
+	      
+	      char turnStr[50];
+	      snprintf(turnStr,50,"T=%f\n",turnRadius);
+	      uart.send(turnStr);
+	      missionState = 8;
+	    }
+	    else
+	    {
+	      printf("Sending new angle\n");
+	      
+	      angleToGmk -= M_PI/2;
+	      
+	      char angleStr[50];
+	      snprintf(angleStr, 50, "A=%f\n",angleToGmk);
+	      uart.send(angleStr);
+	      missionState = 71;
+	    }
+	      
+	    
+	  }
+	  
+	  break;
+	  
+	case 71: 
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    printf("Sending distance\n");
+	    
+	    char distanceStrX[50];
+	    snprintf(distanceStrX, 50, "D=%f\n", (turnRadius*2)+0.05);
+	    uart.send(distanceStrX);
+	    
+	    missionState = 8;
+	  }
+	  break;
+	  
+	case 8:
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    if(leftSide)
+	    {
+	      printf("Sending mission 6\n");
+	      uart.send((char*)"M=6\n");
+	    }
+	    else
+	    {
+	      printf("Sending mission 4\n");
+	      uart.send((char*)"M=4\n");
+	    }
+	    
+	    missionState = 9;
+	  }
+	  break;
+	  
+	
+	    
+	    
+	    
+	  
+	case 9: // wait for finish driving
+	  if (regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    printf("Starting driving\n");
+	    
+	    if (leftSide)
+	      missionState = 10;
+	    else
+	      missionState = 91;
+	  }
+	  break;
+	  
+	case 91:
+	  if ( regbotReady)
+	  {
+	    regbotReady = false;
+	    
+	    printf("Sending new angle\n");
+	    
+	    angleToGmk -= M_PI/2;
+	      
+	    char angleStr[50];
+	    snprintf(angleStr, 50, "A=%f\n",angleToGmk);
+	    uart.send(angleStr);
+	    missionState = 10;
+	    
+	    loopcounter = 0;
+	  }
+	  break;
+	  
+	case 10:
+	  if (regbotReady and loopcounter > 15)
+	  {
+	    regbotReady = false;
+	    printf("Ready to go\n");
+	    uart.send((char*)"M=98\n"); // clear pose 
+	    
+	    tcpClient.sendData("readyToGo\n");
+	    
+	    loopcounter = 0;
+	    
+	    missionState = 11;
+	    
+	  }
+	  break;
+	 
+	case 11:
+	  if (regbotReady and leaderProceeding)
+	  {
+	    leaderProceeding = false;
+	    regbotReady = false;
+	    angleToGmk = 0.0;
+	    missionState = 12;
+	    
+	  }
+	  else if (loopcounter > 15)
+	  {
+	    missionState = 10;
+	    regbotReady = true;
+	    wifiIsConnected = false;
+	    printf("No answer from Leader - trying again!\n");
+	  }
+	    
+	    
+	  break;
+	  
+	case 12:
+	  {
+	    missionState = 13;
+	    angleToGmk = 0.0;
+	    
+	    startLogging = true;
+	  }
+	  break;
+	  
+	case 13:
+	  teamwork.doWork(imgCV, uart);
+	  if (startLogging)
+	    fprintf(logFile, "%f %f %f\n", distanceOveride, logVel, logAngle);
+	  break;
+	  
+	default:
+	  break;
       
 	
       }
 	
-	 */
+	
+	
+	 
       
     }
     else
@@ -310,6 +751,10 @@ bool UFuncTeamWork::handleCommand(UServerInMsg* msg, void* extra)
   
 bool UFuncTeamWork::methodCall(const char* name, const char* paramOrder, char** strings, const double* pars, double* value, UDataBase** returnStruct, int* returnStructCnt)
 {
+  
+  gmk.setReadyFlag(true);
+  gmk.setRunning(false);
+  
   bool result = true;
   //int i;
   UPosition pos;
@@ -335,12 +780,13 @@ bool UFuncTeamWork::methodCall(const char* name, const char* paramOrder, char** 
 	char gmkIdCall[50];
 	snprintf(gmkIdCall,50,"gmk.IDs[%d]",i);
 	
-	const char* finalGmkIdCall = gmkIdCall;
 	
 	double id;
-	getGlobalValue(finalGmkIdCall,&id);
+	getGlobalValue(gmkIdCall,&id);
 	
 	int idINT = (int)(id+0.5);
+	
+	
 	
 	if (idINT != 0)
 	  gmk.addID(idINT);
@@ -369,11 +815,12 @@ bool UFuncTeamWork::methodCall(const char* name, const char* paramOrder, char** 
   return result;
 }
 
+/*
 void* gmkWaitThread(void *arg )
 {
   
   
-  usleep(1700000);
+  usleep(2000000);
   printf("gmkWaitThread has finished\n");
   
   gmk.setRunning(false);
@@ -383,11 +830,12 @@ void* gmkWaitThread(void *arg )
   
   pthread_exit(NULL);
 }
-  
+*/
   
   
 void UFuncTeamWork::findGMK()
 {
+  /*
   pthread_t t1;
   int ret = pthread_create(&t1, NULL, &gmkWaitThread, NULL);
   if (ret != 0)
@@ -397,10 +845,11 @@ void UFuncTeamWork::findGMK()
     exit(EXIT_FAILURE);
   }
   else
+    */
   {
     gmk.setRunning(true);
-    getCorePointer()->postCommand(-36,"gmk img=55 block=0.00357");
-    printf("gmkWaitThread created\n");
+    getCorePointer()->postCommand(-36,"gmk img=55 block=0.00571");
+    printf("gmk-command posted\n");
   }
 }
 

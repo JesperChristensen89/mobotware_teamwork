@@ -9,6 +9,7 @@
 #define UART_H
 
 extern bool missionStart;
+extern bool regbotReady;
 
 class UART
 {

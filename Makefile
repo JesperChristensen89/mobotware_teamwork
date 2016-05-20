@@ -28,7 +28,7 @@ include ../../include/opencv_flags.mk
 # endif
 #
 # Object files to produce before link
-sourcescpp = ufuncteamwork.cpp teamwork.cpp gmk.cpp uart.cpp control.cpp commands.cpp
+sourcescpp = ufuncteamwork.cpp teamwork.cpp gmk.cpp uart.cpp control.cpp commands.cpp tcp.cpp
 #
 sourcesh = $(sourcescpp:.cpp=.h)
 OBJECTS = $(sourcescpp:.cpp=.o)

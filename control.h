@@ -9,13 +9,16 @@
 #define CONTROL_H
 
 #include <stdio.h>
+#include "ufuncteamwork.h"
 #include <stdlib.h>
 
-class Control
+class Control 
 {
 public:
-    int regulator(int, int);
-    void reset();
+    int angleRegulator(int, int);
+    double velRegulator(double targetDistanceToObject, int actualHeight, bool foundRect, FILE * visionLog); 
+    void resetAngle();
+    void resetVel();
 };
 
 #endif /* CONTROL_H */

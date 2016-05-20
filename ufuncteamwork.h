@@ -11,6 +11,20 @@
 
 #include <ucam4/ufunctioncambase.h>
 
+extern int ID2find;
+extern double angleToGmk;
+extern bool clrVelReg;
+
+extern bool interupt;
+extern double angleOveride;
+extern double distanceOveride;
+extern int overideState;
+extern double logAngle;
+extern double logVel;
+extern double masterVel;
+extern bool startTeensyLog;
+extern bool stopVisionLog;
+extern bool leaderProceeding;
 
 /**
 Vision based collaborating mobile robots
@@ -28,8 +42,11 @@ public:
     // create global variables
     createBaseVar();    
     missionState = 0;
-    ID2find = 20;
+    
+    gmkTries = 0;
+    
   };
+  
   
   
   virtual ~UFuncTeamWork();
@@ -55,8 +72,11 @@ private:
   void findGMK();
   bool verifyGMK(int);
   
-  int ID2find;
   int missionState;
+  // how many times findGMK has been launched at current position
+  int gmkTries;
+  
+  double gmkPose[6];
 
 };
   

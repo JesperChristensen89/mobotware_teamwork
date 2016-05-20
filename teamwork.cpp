@@ -18,6 +18,7 @@ Control control;
 
 bool first = true;
 bool debug = false;
+FILE * visionLog;
 
 Mat TeamWork::correctColors(Mat img)
 {
@@ -46,21 +47,30 @@ bool TeamWork::compareContourAreas(vector< Point > contour1, vector< Point > con
 }
 
 
-
 bool TeamWork::doWork(Mat img, UART uart)
 {
- 
+  if (stopVisionLog)
+  {
+    fclose(visionLog);
+  }
   
   if (first)
   {
     count = 0;
     first = false;
     printf("Starting\n");
+    
+    visionLog = fopen("../visionlog.txt", "w");
+    
+    fprintf(visionLog, "N Succes Square False\n");
   }
+  
 
   count +=1;
   
-  if (count > 300)
+  fprintf(visionLog, "%d ", count);
+  
+  if (count > 800)
   {
     char stopStr[50];
     Commands::angle(stopStr, 998);
@@ -69,212 +79,240 @@ bool TeamWork::doWork(Mat img, UART uart)
   }
   
   Mat imgRGB = correctColors(img.clone());
- 
-  /*
-  if (debug)
-  {
+  
+  
+  //if (debug)  
+  { 
     char saveRawStr[50];
     snprintf(saveRawStr, 50, "/home/pi/runs/raw%d.png",count);
     imwrite(saveRawStr, imgRGB);
+    printf("Saved!\n"); 
   }
-  */
   
-  int xOffset = 10;
-  int yOffset = imgRGB.rows/3*2;
+  int srcHeight = imgRGB.rows;
+  int srcWidth = imgRGB.cols;
   
-  Rect roi = Rect(xOffset,yOffset, imgRGB.cols-2*xOffset, 80);
-  Mat img_roi = imgRGB(roi);
-  
-  //rectangle(imgRGB,roi,Scalar(255,255,255),1,8,0);
-  
-  /*
-  if (debug)
-  {
-    char saveRoiStr[50];
-    snprintf(saveRoiStr, 50, "/home/pi/runs/roi%d.png",count);
-    imwrite(saveRoiStr, img_roi);
-  }
-  */
+  Mat resized;
+  resize(imgRGB,resized,Size(srcWidth/4,srcHeight/4));
   
   Mat imgHSV;
-  cvtColor(img_roi, imgHSV, CV_BGR2HSV);
-  
-  Mat blur;
-  GaussianBlur(imgHSV, blur, Size(3,3), 2);
+  cvtColor(resized,imgHSV, CV_BGR2HSV);
+ 
   
   Mat thresh;
-  inRange(blur, Scalar(0,154,90), Scalar(255,255,255), thresh);
+  inRange(imgHSV, Scalar(0,120,90), Scalar(255,255,255), thresh);
+  //inRange(imgHSV, Scalar(0,189,28), Scalar(11,255,255), thresh);
   
+  Mat open, closed;
+  Mat kernelOpen = getStructuringElement(MORPH_RECT, Size(thresh.rows/7,1));
+  Mat kernelClose= getStructuringElement(MORPH_RECT, Size(thresh.rows/5,1));
+  morphologyEx(thresh, open, MORPH_OPEN, kernelOpen); 
+  morphologyEx(open,closed,MORPH_CLOSE, kernelClose);
   
-  int sizeForKernel = 40;
+  //kernelOpen = getStructuringElement(MORPH_RECT, Size(thresh.rows/20*3,1));
+  //morphologyEx(closed,open,MORPH_OPEN, kernelOpen);
   
-  Mat closed;
-  Mat structure = getStructuringElement(MORPH_RECT, Size(sizeForKernel,sizeForKernel));
-  morphologyEx(thresh, closed, MORPH_CLOSE, structure); 
-  
-  Mat redArea;
-  bitwise_and(thresh, closed, redArea);
-  
-  
-  
-  
-  
-  /*
-  
-  Mat structure = getStructuringElement (MORPH_RECT, Size(1,sizeForKernel));
-  Mat e, d;
-  erode(thresh, e, structure, Point(-1,-1));
-  dilate(e,d,structure, Point(-1,-1));
-  
-  structure = getStructuringElement(MORPH_RECT, Size(sizeForKernel,1));
-  
-  bitwise_not(d,d);
-  
-  erode(d,e,structure);
-  dilate(e,d,structure);
-  
-  bitwise_not(d,d);
-  
-  if (debug)
-  {
-    char saveCloseStr[50];
-    snprintf(saveCloseStr, 50, "/home/pi/runs/close%d.png",count);
-    imwrite(saveCloseStr, d);
-  }
-  */
   vector< vector<Point> > cnts; 
   vector<Vec4i> hierarchy;
   
-  findContours( redArea.clone(), cnts, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE ); 
-
+  findContours( closed.clone(), cnts, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE ); 
+  //sort(cnts.begin(), cnts.end(), compareContourAreas);
+  
   if (cnts.size() == 0)
   {
-    uart.send((char*)"C=1\n");
+    fprintf(visionLog, "0 0 0\n");
+    
     return false;
   }
-  
-  sort(cnts.begin(), cnts.end(), compareContourAreas);
-  
-  /*
-  if (debug)
-  {
-    drawContours(img_roi,cnts,-1,Scalar(255,255,255),1,8);
-    char saveCntsStr[50];
-    snprintf(saveCntsStr, 50, "/home/pi/runs/cnts%d.png",count);
-    imwrite(saveCntsStr, img_roi);
-  }
-  */
-  
-  Rect boundRec = boundingRect(cnts[0]);
-  float outerContArea = contourArea(cnts[0]);
-  boundRec.x += xOffset;
-  boundRec.y += yOffset;
-  rectangle(imgRGB,boundRec, Scalar(0,255,0),1,8,0);
-  
-  Moments mu = moments(cnts[0]);
-  int cX = (int)(mu.m10 / mu.m00) + xOffset;
-  int cY = (int)(mu.m01 / mu.m00) + yOffset;
-
-  circle(imgRGB,Point(cX,cY),3, Scalar(0,255,0),-1, 8, 0);
-  
-  bool squareFound = false;
-  double rectArea = 0;
-  vector<Point> approx;
-  int cSqX = 0, cSqY = 0;
-  
-  if (cnts.size() <= 1)
-    printf("No inner contours!!\n");
   else
-    printf("Inner contours found!\n");
+    fprintf(visionLog, "1 ");
   
-  for (uint i = 1; i < cnts.size(); i++)
+  double m = 0;
+  int mIdx = 0;
+  
+  for (uint i = 0; i < cnts.size(); i++)
   {
-    //printf("Getting the arcLength\n");
-    double peri = arcLength(cnts[i],true);
-    
-    //printf("Getting approxPolyDP\n");
-    approxPolyDP(cnts[i], approx, 0.04*peri, true);
-    
-    //printf("Points in approxPolyDP: %d\n",approx.size());
-    
-    if (contourArea(cnts[i]) > 150 and approx.size() == 4)
+    Rect rec = boundingRect(cnts[i]);
+      
+    if (rec.width > 50)
     {
-      
-      //printf("Found rect - getting moments\n");
-      Moments sqMoments = moments(cnts[i]);
-      cSqX = (int)(sqMoments.m10 / sqMoments.m00) + xOffset;
-      cSqY = (int)(sqMoments.m01 / sqMoments.m00) + yOffset;
-      
-      //printf("Got moments and center\n");
-      if (cSqX > boundRec.x+ xOffset +25 and cSqX < boundRec.x+xOffset+boundRec.width-25)
+      Scalar temp = mean(imgHSV(rec));
+      if (temp[2] > m)
       {
-	
-	rectArea = contourArea(cnts[i]);
-	printf("Rect area: %f\n", rectArea);
-	//printf("Valid rect found - drawing cont\n");
-	//drawContours(imgRGB,innerCnts,innerCnts.size()-1,Scalar(0,0,255),1,8,innerHierarchy,0,Point(xOffset,yOffset));
-	//printf("Drawing circle\n");
-	circle(imgRGB,Point(cSqX,cSqY), 3, Scalar(0,0,255),-1, 8, 0);
-	squareFound = true;
-	break;
+	m = temp[2];
+	mIdx = i;
       }
     }
+  } 
+  
+  Rect boundRed = boundingRect(cnts[mIdx]);
+      
+  Mat redCropped = imgRGB(Rect(boundRed.x*4,boundRed.y*4,boundRed.width*4,boundRed.height*4));
+  
+  Mat redHSV;
+  cvtColor(redCropped,redHSV,CV_BGR2HSV);
+  
+  Mat redThresh;
+  inRange(redHSV, Scalar(0,120,90), Scalar(255,255,255), redThresh);
+  //inRange(redHSV, Scalar(0,189,28), Scalar(11,255,255), redThresh);
+    
+  Mat redOpen;
+  
+  printf("Before open\n");
+  
+  try
+  {
+    
+    Mat kernelRedOpen = getStructuringElement(MORPH_RECT, Size(redThresh.rows/5,redThresh.rows/5));
+    Mat inverted;
+    
+    bitwise_not(redThresh.clone(),inverted);
+    morphologyEx(inverted, redOpen, MORPH_OPEN, kernelRedOpen);
+    bitwise_not(redOpen, redOpen);
+    
   }
+  catch (...)
+  {
+    printf("Could not 'open' redThresh\n");
+    redOpen = redThresh;
+  }
+    
+  printf("After open\n");
   
- 
-  printf("Outer area: %f\n",outerContArea);
+  vector< vector<Point> > innerCnts; 
+  vector<Vec4i> innerHierarchy;
+  
+  findContours( redOpen.clone(), innerCnts, innerHierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE ); 
+  sort(innerCnts.begin(), innerCnts.end(), compareContourAreas);
+  
+  /*
+  if (innerCnts.size() <= 1)
+    return false;
+  */
   
   
+  bool squareFound = false;
+  int rectHeight = 0;
+  vector<Point> approx;
+  int cSqX = 0, cSqY = 0;
+
+  
+  for (uint i = 1; i < innerCnts.size(); i++)
+  {
+    double peri = arcLength(innerCnts[i],true);
+    
+    approxPolyDP(innerCnts[i], approx, 0.04*peri, true);
+       
+    
+    if (approx.size() == 4)
+    {
+      //Rect rect = boundingRect(innerCnts[i]);
+      //rectHeight = rect.height;
+      
+      int a = 999;
+      int b = 0;
+      
+      for (uint j=0; j< approx.size(); j++)
+      {
+	if (approx[j].y > b)
+	  b = approx[j].y;
+	if (approx[j].y < a)
+	  a = approx[j].y;
+      }
+      
+      rectHeight = b-a;
+      
+      if (rectHeight > 8 and rectHeight < 100)
+      {
+	Moments sqMoments = moments(innerCnts[i]);
+	cSqX = (int)(sqMoments.m10 / sqMoments.m00) + boundRed.x*4;
+	cSqY = (int)(sqMoments.m01 / sqMoments.m00) + boundRed.y*4;
+	
+	//drawContours(imgRGB,innerCnts,i,Scalar(0,255,0),1,8,innerHierarchy,10, Point(boundRed.x*4,boundRed.y*4));
+	
+	circle(imgRGB,Point(cSqX,cSqY), 3, Scalar(0,0,255),-1, 8, 0);
+	rectangle(imgRGB, boundingRect(innerCnts[i]), Scalar(0,0,255),1,8,0);
+	squareFound = true;
+	
+	
+	break;
+      }
+
+    }
+  }
+   
+
   int angle = 0;
+  double vel = 0;
+
+  
   if (squareFound)
   {
-    angle = control.regulator(cSqX,imgRGB.cols/2);
+    angle = control.angleRegulator(cSqX,imgRGB.cols/2);
+    
     printf("Tracking rect\n");
+    
+    fprintf(visionLog, "1 ");
+    
+    vel = control.velRegulator(0.4, rectHeight, true, visionLog); // set ref in m from target
+    
+    /*
+    char saveSqStr[50];
+    snprintf(saveSqStr, 50, "/home/pi/runs/square%d.png",count);
+    imwrite(saveSqStr, imgRGB);
+    */
+    
   }
   else
-  {
-    angle = control.regulator(cX, imgRGB.cols/2);
+  { 
+    fprintf(visionLog, "0 "); 
+    
+    Moments mu = moments(innerCnts[0]);
+    int cX = (int)(mu.m10 / mu.m00) + boundRed.x * 4;
+    int cY = (int)(mu.m01 / mu.m00) + boundRed.y * 4;
+    circle(imgRGB,Point(cX,cY), 3, Scalar(0,255,0),-1, 8, 0);
+    angle = control.angleRegulator(cX, imgRGB.cols/2);
+    
+    vel = control.velRegulator(0.4, boundRed.height*4, false, visionLog); // set ref in m from target
   }
   
-  char angleStr[50];
+  
+  
+  printf("Vel: %f\n",vel);
+  
+  /*
+  char velStr[10];
+  //snprintf(velStr,10,"V=%f\n",vel);
+  Commands::vel(velStr, vel);
+  uart.send(velStr);
+  
+ 
+  char angleStr[10];
+  //snprintf(angleStr,10,"A=%f\n",angle * PI / 180);
   Commands::angle(angleStr, angle * PI / 180);
   uart.send(angleStr);
-
-  if (outerContArea > 30000 or rectArea > 1500)
-  {
-    if (outerContArea > 43000 or rectArea > 1800)
-    {
-      printf("Backing up\n");
-      uart.send((char*)"C=2\n");
-    }
-      
-    else
-    {
-      printf("Holding pos\n");
-      uart.send((char*)"C=1\n");
-    }
+  */
+ 
+  
+  char VAstr[20];
+  snprintf(VAstr,20,"VA%.3f%.3f\n",vel,angle * PI / 180);
+  uart.send(VAstr);
+  
+  
+  if (debug)
+  { 
+    char saveResStr[50];
+    snprintf(saveResStr, 50, "/home/pi/runs/res%d.png",count);
+    imwrite(saveResStr, imgRGB);
+    printf("Saved!\n");
   }
-  else
-    uart.send((char*)"C=0\n");
-
-
-
+  
   
   printf("Image: %d\nAngle: %d\n", count-1,angle);
   
   
-  /*
-  if (debug)
-  {
-    char saveStr[50];
-    snprintf(saveStr, 50, "/home/pi/runs/res%d.png", count);
-    imwrite(saveStr,imgRGB);
-  }
-  */
-  
   printf("_______________________\n");
-  
-  
+
   
   return true;
 }
