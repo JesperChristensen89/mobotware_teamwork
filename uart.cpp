@@ -7,15 +7,19 @@
 #include <cstring>
 #include <unistd.h>
 
+// globals
 int uart0_filestream = -1;
-
-
 bool missionStart = false;
 bool regbotReady = false;
 int tooClose = 0;
 
-
+/**
+ * @brief opens uart serial connection non-blocking 115.200 kbit/s
+ * 
+ * @return void
+ */
 void UART::init()
+
 {
     printf("Trying to open UART...\n");
     uart0_filestream = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NDELAY);		//Open in non blocking read/write mode
@@ -37,9 +41,12 @@ void UART::init()
     printf("UART is open\n");
 }
 
-/*
- * used for sending commands to regbot
- 
+
+/**
+ * @brief used for sending data via UART
+ * 
+ * @param str data to pass
+ * @return void
  */
 void UART::send(char *str)
 {
@@ -56,16 +63,22 @@ void UART::send(char *str)
 }
 
 
-/*
- * used for receiving data from regbot
+/**
+ * @brief used for receiving data via uart
+ * 
+ * @return void
  */
 void UART::receive()
 {
+    // check if filestream is empty
     if (uart0_filestream != -1)
         {
-            // Read up to 10 characters from the port if they are there
+            // Read up to 50 characters from the port if they are there
             char rx_buffer[50];
-            int rx_length = read(uart0_filestream, (void*)rx_buffer, 50);		//Filestream, buffer to store in, number of bytes to read (max)
+	    
+	    //Filestream, buffer to store in, number of bytes to read (max)
+            int rx_length = read(uart0_filestream, (void*)rx_buffer, 50);	
+	    
             if (rx_length < 0)
             {
                     // error                   
@@ -81,18 +94,19 @@ void UART::receive()
                 char* str = rx_buffer;
 		printf(str);
                 
+		// check for start command
                 if (strncmp(str,"start\n",6)==0)
                 {
                     missionStart = true;
                     
                 }
-                
+                // check for ready flag
                 else if (strncmp(str,"ready\n",5)==0)
 		{
 		  regbotReady = true;
 		}
 		else
-		  printf(str);
+		  printf(str); // should not happen
 
             }
         }

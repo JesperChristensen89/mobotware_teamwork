@@ -1,8 +1,9 @@
-/* 
- * File:   control.h
- * Author: jesper
- *
- * Created on February 25, 2016, 8:07 AM
+/**
+ * @brief class to handle the speed
+ * and direction controller
+ * 
+ * @author Jesper H. Christensen, 2016
+ * jesper@haahrchristensen.dk
  */
 
 #ifndef CONTROL_H
@@ -18,7 +19,6 @@ public:
     int angleRegulator(int, int);
     double velRegulator(double targetDistanceToObject, int actualHeight, bool foundRect, FILE * visionLog); 
     void resetAngle();
-    void resetVel();
 };
 
 #endif /* CONTROL_H */

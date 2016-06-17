@@ -1,21 +1,15 @@
-/* 
- * File:   ufuncteamwork.h
- * Author: jesper
- *
- * Created on February 22, 2016, 6:14 PM
- */
-
 #ifndef UFUNCTEAMWORK_H
 #define UFUNCTEAMWORK_H
-
 
 #include <ucam4/ufunctioncambase.h>
 
 extern int ID2find;
 extern double angleToGmk;
 extern bool clrVelReg;
-
 extern bool interupt;
+extern bool radeeISR;
+extern double integralAngle;
+extern double interuptRadee;
 extern double angleOveride;
 extern double distanceOveride;
 extern int overideState;
@@ -47,8 +41,6 @@ public:
     
   };
   
-  
-  
   virtual ~UFuncTeamWork();
   
   virtual bool handleCommand(UServerInMsg * msg, void * extra);
@@ -67,8 +59,7 @@ private:
 
   UVariable * varPoolImg;
   UVariable * varLeft;
-  UVariable * varWhite;
-  UVariable * varErrThresh;
+  
   void findGMK();
   bool verifyGMK(int);
   

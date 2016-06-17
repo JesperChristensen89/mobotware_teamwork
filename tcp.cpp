@@ -4,6 +4,10 @@
 
 using namespace std;
 
+/**
+ * @brief Class constructor
+ * 
+ */
 TCP::TCP()
 {
   sock = -1;
@@ -14,6 +18,13 @@ TCP::TCP()
 }
 
 
+/**
+ * @brief used for connecting to a tcp server
+ * 
+ * @param address ip address
+ * @param port listening port
+ * @return bool
+ */
 bool TCP::conn(string address, int port)
 {
   // create socket
@@ -52,10 +63,9 @@ bool TCP::conn(string address, int port)
 
       for(int i = 0; addr_list[i] != NULL; i++)
       {
-	  //strcpy(ip , inet_ntoa(*addr_list[i]) );
+	  
 	  server.sin_addr = *addr_list[i];
 	    
-	  //printf("%s resolved to %s\n", address, inet_net_ntop(*addr_list[i]));
 	    
 	  break;
       }
@@ -81,6 +91,11 @@ bool TCP::conn(string address, int port)
   return true;
 }
 
+/**
+ * @brief used for receiving incoming data from TCP
+ * 
+ * @return void
+ */
 void TCP::receive()
 {
     
@@ -92,22 +107,19 @@ void TCP::receive()
     {
         puts("recv failed");
     }
-   
+    // wait until current interupt is done
+    while (interupt == true);
+    // check for leader started
     if (strncmp(buffer, "started", 7) == 0)
     {
       regbotStarted = true;
       printf("Regbot started\n");
     }
-    else if (strncmp(buffer, "clrVelReg",9) == 0)
-    {
-      clrVelReg = true;
-      
-    }
+    // check for turn
     else if (strncmp(buffer, "A=",2) ==0)
     {
-      
-      //printf("buffer contains: %s\n", buffer);
-      
+           
+      // get the new direction
       char angleStr[10] = "";
       for (uint i = 0; i < strlen(buffer)-4; i++)
       {
@@ -115,20 +127,51 @@ void TCP::receive()
       }
                   
       angleOveride = atof(angleStr);
+      
+      // set flag for processing by main thread
       interupt = true;
       
+      // show received turn on screen
       printf("******************* INTERUPT *********************\n");
       printf("Turn received: %f\n", angleOveride);
       
       overideState = 0;
       
+      // send confirmation to leader
       sendData("readyToGo\n");
       
     }
+    // check for turn with radius
+    else if (strncmp(buffer, "R=",2) ==0)
+    {
+      
+      //printf("buffer contains: %s\n", buffer);
+      
+      char radeeStr[10] = "";
+      for (uint i = 0; i < strlen(buffer)-4; i++)
+      {
+	radeeStr[i] = buffer[i+2];
+      }
+                
+      // set flag indicating a turn with radee og get radee
+      interuptRadee = atof(radeeStr);
+      radeeISR = true;
+      interupt = true;
+      
+      printf("******************* INTERUPT *********************\n");
+      printf("Radee received: %f\n", interuptRadee);
+      
+      overideState = 0;
+      
+      // send confirmation to leader
+      sendData("readyToGo\n");
+      
+    }
+    // check for change in speed
     else if (strncmp(buffer, "V=",2) == 0)
     {
       
-      
+      // get the new speed
       char velStr[10] = "";
       for (uint i = 0; i < strlen(buffer)-4; i++)
       {
@@ -136,33 +179,51 @@ void TCP::receive()
       }
       masterVel = atof(velStr);
       
+      // show received speed on screen
       printf("******************* VELOCITY COMMAND *********************\n");
       printf("Vel received: %f\n", masterVel);
       
+      
+      // send confirmation to leader
       sendData("readyToGo\n");
       
       
     }
+    // check for start log command
     else if (strncmp(buffer, "startLog", 8) == 0)
     {
       printf("******************* LOG COMMAND *********************\n");
      
+      // start logging from raspberry
       startTeensyLog = true;
       
+      // send confirmation
       sendData("readyToGo\n");
     }
+    
+    // check for proceeding command
     else if (strncmp(buffer,"proceeding", 10) == 0)
     {
-     leaderProceeding = true;
-     printf("******************* LEADER IS PROCEEDING *********************\n");
-     
-     sendData("readyToGo\n");
+	
+      // set flag
+      leaderProceeding = true;
+      
+      printf("******************* LEADER IS PROCEEDING *********************\n");
+      
+      // send confirmation to leader
+      sendData("readyToGo\n");
     }
     
 
 }
  
-bool TCP::sendData(string data)
+ /**
+  * @brief used for sending data to leader robot
+  * 
+  * @param data string containing the data
+  * @return bool
+  */
+ bool TCP::sendData(string data)
 {
   //Send some data
   if( send(sock , data.c_str() , strlen( data.c_str() ) , 0) < 0)

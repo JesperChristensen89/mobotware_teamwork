@@ -7,8 +7,12 @@
 
 using namespace std;
 
-vector<int> IDs;
+vector<int> IDs; // global vector to hold IDs
 
+/**
+ * @brief used for clearing guidemark flags
+ * 
+ */
 GMK::GMK()
 {
   gmkIsReady = false;
@@ -16,6 +20,12 @@ GMK::GMK()
 }
 
 
+/**
+ * @brief adds an ID to the vector
+ * 
+ * @param id ID number
+ * @return void
+ */
 void GMK::addID(int id)
 {
   vector<int>::iterator it;
@@ -31,6 +41,12 @@ void GMK::addID(int id)
 
 }
 
+/**
+ * @brief Returns the ID with a specific index
+ * 
+ * @param idx index for ID
+ * @return int
+ */
 int GMK::getIDs(int idx)
 {
   return IDs[idx];
@@ -44,15 +60,6 @@ int GMK::getIDs(int idx)
  */
 bool GMK::findID(int ID)
 {
-  /*
-  vector<int>::iterator it;
-  it = find (IDs.begin(), IDs.end(), ID);
-  
-  if (it != IDs.end())
-    return true;
-  else
-    return false;
-  */
   
   char IDstr[10];
   for (uint i = 0; i < IDs.size(); i++)
@@ -74,6 +81,12 @@ bool GMK::findID(int ID)
 
 }
 
+/**
+ * @brief sets the running flag for guidemark
+ * 
+ * @param val flag
+ * @return void
+ */
 void GMK::setRunning(bool val)
 {
 
@@ -81,6 +94,11 @@ void GMK::setRunning(bool val)
   
 }
 
+/**
+ * @brief returns running flag for guidemark
+ * 
+ * @return bool
+ */
 bool GMK::isRunning()
 {
   return gmkRunning;
@@ -89,11 +107,21 @@ bool GMK::isRunning()
 
 
 
+/**
+ * @brief gets the size of guidemark vector
+ * 
+ * @return int
+ */
 int GMK::getGmkCount()
 {
   return IDs.size();
 }
 
+/**
+ * @brief clears the ID vector
+ * 
+ * @return bool
+ */
 bool GMK::clearIDs()
 {
   
@@ -103,16 +131,32 @@ bool GMK::clearIDs()
   
 }
 
+/**
+ * @brief sets the gmk ready flag
+ * 
+ * @param val flag
+ * @return void
+ */
 void GMK::setReadyFlag(bool val)
 {
   gmkIsReady = val;
 }
 
+/**
+ * @brief gets the gmk ready flag
+ * 
+ * @return bool
+ */
 bool GMK::getReadyFlag()
 {
   return gmkIsReady;
 }
 
+/**
+ * @brief print ID in vector
+ * 
+ * @return void
+ */
 void GMK::printGmkId()
 {
   

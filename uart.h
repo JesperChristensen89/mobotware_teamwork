@@ -1,8 +1,9 @@
-/* 
- * File:   UART.h
- * Author: jesper
- *
- * Created on February 22, 2016, 5:33 PM
+/**
+ * @brief class to handle the UART serial connection
+ * 
+ * 
+ * @author Jesper H. Christensen, 2016
+ * jesper@haahrchristensen.dk
  */
 
 #ifndef UART_H

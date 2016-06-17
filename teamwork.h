@@ -1,8 +1,9 @@
-/* 
- * File:   teamwork.h
- * Author: jesper
- *
- * Created on February 22, 2016, 6:14 PM
+/**
+ * @brief class to handle image processing
+ * 
+ * 
+ * @author Jesper H. Christensen, 2016
+ * jesper@haahrchristensen.dk
  */
 
 #ifndef TEAMWORK_H
